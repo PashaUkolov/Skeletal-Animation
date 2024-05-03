@@ -13,6 +13,7 @@
 #include <set>
 #include <list>
 #include <glm/gtx/quaternion.hpp>
+#include <glm/gtx/matrix_decompose.hpp>
 
 #include "shader.h"
 
@@ -115,11 +116,29 @@ void initLine() {
     glBindVertexArray(0);
 }
 
-void drawLine(glm::mat4 transform, glm::vec3 color) {
-    float lineVertices[] = {
+void drawLine(glm::mat4 transform, glm::mat4 transform2, glm::vec3 color) {
+    glm::vec3 scale;
+    glm::quat rotation;
+    glm::vec3 translation;
+    glm::vec3 skew;
+    glm::vec4 perspective;
+    glm::decompose(transform, scale, rotation, translation, skew, perspective);
+
+    glm::vec3 scale2;
+    glm::quat rotation2;
+    glm::vec3 translation2;
+    glm::vec3 skew2;
+    glm::vec4 perspective2;
+    glm::decompose(transform2, scale2, rotation2, translation2, skew2, perspective2);
+    /*float lineVertices[] = {
         0.0f, 0.0f, 0.0f,
         0.0f, 0.1f, 0.0f
+    };*/
+    float lineVertices[] = {
+        translation.x, translation.y, translation.z,
+        translation2.x, translation2.y, translation2.z
     };
+
     glDepthMask(GL_FALSE);
     glDisable(GL_DEPTH_TEST);
     glBindVertexArray(lineVao);
@@ -133,7 +152,7 @@ void drawLine(glm::mat4 transform, glm::vec3 color) {
     GLuint colorLoc = glGetUniformLocation(lineShader.id, "fColor");
 
     glm::mat4 modelMatrix = glm::mat4(1.0f);
-    modelMatrix = cam.transform * transform;
+    modelMatrix = cam.transform /** transform*/;
 
     glUniformMatrix4fv(modelLoc, 1, false, &(modelMatrix[0].x));
     glUniformMatrix4fv(viewLoc, 1, false, &(cam.viewMatrix[0].x));
@@ -161,7 +180,6 @@ struct Joint {
         children.push_back(childNode);
     }
 };
-
 
 GLuint vao;
 std::map<int, GLuint> vbos;
@@ -256,7 +274,6 @@ void drawModel(const tinygltf::Model& model, float timer) {
     }
 }
 
-
 glm::mat4 computeTRSMatrix(tinygltf::Node node) {
     glm::vec3 translation{0.0f};
     glm::quat rotation{};
@@ -272,16 +289,6 @@ glm::mat4 computeTRSMatrix(tinygltf::Node node) {
     if (node.scale.size()) {
         scale = { (float)node.scale[0], (float)node.scale[1], (float)node.scale[2] };
     }
-
-    /*glm::mat4 nodeMatrix;
-    if (node.matrix.size()) {
-        memcpy(&nodeMatrix[0], &node.matrix, sizeof(glm::mat4));
-        return nodeMatrix;
-    }*/
-
-    //if (node.translation.empty() || node.rotation.empty() || node.scale.empty()) {
-    //    return glm::mat4(1.0f);
-    //}
          
     const glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), translation);
     const glm::mat4 rotationMatrix = glm::toMat4(rotation);
@@ -418,7 +425,9 @@ std::map<int, Joint>  getAnimationData(const tinygltf::Model& model, float curre
 }
 
 void drawSkeletonHierarchy(Joint* currentJoint) {
-	drawLine(currentJoint->globalTransform, { 1.0f, 1.0f, 1.0f });
+    if (currentJoint->parent) {
+		drawLine(currentJoint->parent->globalTransform, currentJoint->globalTransform, { 1.0f, 1.0f, 1.0f });
+    }
     for (auto joint : currentJoint->children) {
         drawSkeletonHierarchy(joint);
     }

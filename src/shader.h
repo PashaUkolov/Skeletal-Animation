@@ -3,6 +3,7 @@
 #include "glew/glew.h"
 
 struct Shader {
+	Shader() = default;
 	Shader(const std::string& path);
 	GLuint id;
 private:

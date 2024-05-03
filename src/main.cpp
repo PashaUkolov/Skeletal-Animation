@@ -67,7 +67,7 @@ float getFrameTime() {
 }
 
 void printMatrix(const glm::mat4& matrix) {
-    system("cls");
+    //system("cls");
     printf("MATRIX ========\n");
     for (int i = 0; i < 4; ++i) {
         for (int j = 0; j < 4; ++j) {
@@ -77,10 +77,26 @@ void printMatrix(const glm::mat4& matrix) {
     }
 }
 
+int currentFrame;
+void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS) {
+        currentFrame += 1;
+        printf("frame %d\n", currentFrame);
+    }
+
+    if (key == GLFW_KEY_LEFT && action == GLFW_PRESS) {
+        currentFrame -= 1;
+        if (currentFrame < 0) {
+            currentFrame = 0;
+        }
+        printf("frame %d\n", currentFrame);
+    }
+}
+
 Camera cam;
 void updateCamera(Camera& camera, float timer) {
     camera.transform = glm::mat4(1.0f);
-    camera.transform = glm::rotate(camera.transform, glm::radians(160.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    camera.transform = glm::rotate(camera.transform, glm::radians(timer), glm::vec3(0.0f, 1.0f, 0.0f));
     camera.viewMatrix = glm::mat4(1.0f);
     camera.viewMatrix = glm::lookAt(glm::vec3(0.0f, 5.0f + zoomLevel, -7.0f + -zoomLevel), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0, 1, 0));
     camera.projectionMatrix = glm::perspective(glm::radians(45.0f), (float)WIDTH / (float)HEIGHT, 0.1f, 100.0f);
@@ -102,7 +118,7 @@ void initLine() {
 void drawLine(glm::mat4 transform, glm::vec3 color) {
     float lineVertices[] = {
         0.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 0.1f
+        0.0f, 0.1f, 0.0f
     };
     glDepthMask(GL_FALSE);
     glDisable(GL_DEPTH_TEST);
@@ -128,93 +144,32 @@ void drawLine(glm::mat4 transform, glm::vec3 color) {
 }
 
 struct Joint {
-    std::vector<Joint> children;
+    std::vector<Joint*> children;
+    Joint* parent;
+
+    glm::mat4 localTransform{1.0f};
+    glm::mat4 globalTransform{ 1.0f };
+
     glm::mat4 inverseBindTransform;
     glm::vec3 translation;
     glm::quat rotation;
     glm::vec3 scale;
     std::string name;
     int nodeId;
+
+    void addChild(Joint* childNode) {
+        children.push_back(childNode);
+    }
 };
 
-std::map<int, Joint>  getAnimationData(const tinygltf::Model& model, float currentTime) {
-	std::map<int, Joint> pose;
-	auto& animation = model.animations[0];
-	for (int c = 0; c < animation.channels.size(); c++) {
-		auto& channel = animation.channels[c];
-		auto& sampler = animation.samplers[channel.sampler];
-		auto& inputAccessor = model.accessors[sampler.input];
-		auto& outputAccessor = model.accessors[sampler.output];
-		auto& inputBufferView = model.bufferViews[inputAccessor.bufferView];
-		auto& inputBuffer = model.buffers[inputBufferView.buffer];
-		auto& outputBufferView = model.bufferViews[outputAccessor.bufferView];
-		auto& outputBuffer = model.buffers[outputBufferView.buffer];
-
-		//printf("node %d: %s\n", channel.target_node, model.nodes[channel.target_node].name.c_str());
-		//printf(" channel: %s \n", channel.target_path.c_str());
-
-		std::vector<float> frameTimes(inputAccessor.count);
-		memcpy(&frameTimes[0], &inputBuffer.data[inputBufferView.byteOffset], sizeof(float) * frameTimes.size());
-
-        std::vector<glm::vec3> translationValue(outputAccessor.count);
-        std::vector<glm::quat> rotationValue(outputAccessor.count);
-        std::vector<glm::quat> scaleValue(outputAccessor.count);
-
-        if (channel.target_path == "translation") {
-            memcpy(&translationValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::vec3) * translationValue.size());
-            for (size_t i = 0; i < translationValue.size(); i++) {
-                //printf("   time: %f | vec x %f, y %f, z %f \n", frameTimes[i], translationValue[i].x, translationValue[i].y, translationValue[i].z);
-            }
-        }
-        else if (channel.target_path == "rotation"){
-            memcpy(&rotationValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::quat) * rotationValue.size());
-            for (size_t i = 0; i < rotationValue.size(); i++) {
-                //printf("   time: %f | vec x %f, y %f, z %f w %f \n", frameTimes[i], rotationValue[i].x, rotationValue[i].y, rotationValue[i].z, rotationValue[i].w);
-            }
-        }
-        else if (channel.target_path == "scale") {
-            memcpy(&scaleValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::quat) * scaleValue.size());
-            for (size_t i = 0; i < scaleValue.size(); i++) {
-                //printf("   time: %f | vec x %f, y %f, z %f \n", frameTimes[i], scaleValue[i].x, scaleValue[i].y, scaleValue[i].z);
-            }
-        }
-
-		float previousTime = 0.0f;
-		float nextTime = 0.0f;
-        for (size_t i = 0; i < frameTimes.size(); i++) {
-            if (frameTimes[i] < currentTime) {
-                previousTime = frameTimes[i];
-            }
-
-            if (frameTimes[i] > currentTime) {
-                nextTime = frameTimes[i];
-                break;
-            }
-        }
-
-		for (size_t k = 0; k < frameTimes.size(); k++) {
-            if (frameTimes[k] == previousTime) {
-                if (channel.target_path == "translation") {
-                    pose[channel.target_node].nodeId = channel.target_node;
-                    pose[channel.target_node].translation = translationValue[k];
-                }
-                else if (channel.target_path == "rotation") {
-                    pose[channel.target_node].nodeId = channel.target_node;
-                    pose[channel.target_node].rotation = rotationValue[k];
-                }
-            }
-		}
-	}
-    return pose;
-}
 
 GLuint vao;
 std::map<int, GLuint> vbos;
-tinygltf::Model initModel() {
+tinygltf::Model initModel(const std::string& path) {
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
-    tinygltf::Model model = loadModel("../assets/models/skin.gltf");
+    tinygltf::Model model = loadModel(path);
 
     for (size_t i = 0; i < model.bufferViews.size(); i++) {
         tinygltf::BufferView bufferView = model.bufferViews[i];
@@ -301,21 +256,189 @@ void drawModel(const tinygltf::Model& model, float timer) {
     }
 }
 
-int currentFrame;
 
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-    if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS) {
-        currentFrame += 1;
-        printf("frame %d\n", currentFrame);
+glm::mat4 computeTRSMatrix(tinygltf::Node node) {
+    glm::vec3 translation{0.0f};
+    glm::quat rotation{};
+    glm::vec3 scale{1.0f};
+
+    if (node.translation.size()) {
+        translation = { (float)node.translation[0], (float)node.translation[1], (float)node.translation[2] };
+    }
+    if (node.rotation.size()) {
+        rotation = { (float)node.rotation[3], (float)node.rotation[2], (float)node.rotation[1], (float)node.rotation[0] };
+        //rotation = { (float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3] };
+    }
+    if (node.scale.size()) {
+        scale = { (float)node.scale[0], (float)node.scale[1], (float)node.scale[2] };
     }
 
-    if (key == GLFW_KEY_LEFT && action == GLFW_PRESS) {
-        currentFrame -= 1;
-        if (currentFrame < 0) {
-            currentFrame = 0;
+    /*glm::mat4 nodeMatrix;
+    if (node.matrix.size()) {
+        memcpy(&nodeMatrix[0], &node.matrix, sizeof(glm::mat4));
+        return nodeMatrix;
+    }*/
+
+    //if (node.translation.empty() || node.rotation.empty() || node.scale.empty()) {
+    //    return glm::mat4(1.0f);
+    //}
+         
+    const glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), translation);
+    const glm::mat4 rotationMatrix = glm::toMat4(rotation);
+    const glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
+
+    return translationMatrix * scaleMatrix * rotationMatrix;
+}
+
+glm::mat4 computeTRSMatrix(glm::vec3 translation, glm::quat rotation, glm::vec3 scale) {
+    const glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), translation);
+    const glm::mat4 rotationMatrix = glm::toMat4(rotation);
+    const glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
+
+    return translationMatrix * scaleMatrix * rotationMatrix;
+}
+
+void fillSkeletonHierarchy(const tinygltf::Model& model, tinygltf::Node node, Joint* currentJoint, Joint* parentJoint) {
+    currentJoint->localTransform = computeTRSMatrix(node);
+	if (parentJoint) {
+		currentJoint->globalTransform = parentJoint->globalTransform * currentJoint->localTransform;
+    }
+    else {
+        currentJoint->globalTransform = currentJoint->localTransform;
+    }
+    currentJoint->name = node.name;
+
+    for (auto& child : node.children) {
+        Joint* childJonit = nullptr;
+        childJonit = new Joint();
+        childJonit->nodeId = child;
+        childJonit->parent = currentJoint;
+        currentJoint->addChild(childJonit);
+        fillSkeletonHierarchy(model, model.nodes[child], childJonit, currentJoint);
+    }
+}
+
+void readSkeletonHierarchy(const tinygltf::Model& model, Joint* root) {
+    int rootJointIndex = -1;
+    for (size_t i = 0; i < model.skins.size(); i++) {
+        auto& skin = model.skins[i];
+        for (size_t j = 0; j < skin.joints.size(); j++) {
+            int jointIndex = skin.joints[j];
+            if (model.nodes[jointIndex].name == "root") {
+                rootJointIndex = jointIndex;
+            }
         }
-        printf("frame %d\n", currentFrame);
     }
+    if (rootJointIndex == -1) {
+        return;
+    }
+    root->nodeId = rootJointIndex;
+    fillSkeletonHierarchy(model, model.nodes[rootJointIndex], root, nullptr);
+}
+
+std::map<int, Joint>  getAnimationData(const tinygltf::Model& model, float currentTime) {
+	std::map<int, Joint> pose;
+	auto& animation = model.animations[0];
+	for (int c = 0; c < animation.channels.size(); c++) {
+		auto& channel = animation.channels[c];
+		auto& sampler = animation.samplers[channel.sampler];
+		auto& inputAccessor = model.accessors[sampler.input];
+		auto& outputAccessor = model.accessors[sampler.output];
+		auto& inputBufferView = model.bufferViews[inputAccessor.bufferView];
+		auto& inputBuffer = model.buffers[inputBufferView.buffer];
+		auto& outputBufferView = model.bufferViews[outputAccessor.bufferView];
+		auto& outputBuffer = model.buffers[outputBufferView.buffer];
+
+		//printf("node %d: %s\n", channel.target_node, model.nodes[channel.target_node].name.c_str());
+		//printf(" channel: %s \n", channel.target_path.c_str());
+
+		std::vector<float> frameTimes(inputAccessor.count);
+		memcpy(&frameTimes[0], &inputBuffer.data[inputBufferView.byteOffset], sizeof(float) * frameTimes.size());
+
+        std::vector<glm::vec3> translationValue(outputAccessor.count);
+        std::vector<glm::quat> rotationValue(outputAccessor.count);
+        std::vector<glm::vec3> scaleValue(outputAccessor.count);
+
+        if (channel.target_path == "translation") {
+            memcpy(&translationValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::vec3) * translationValue.size());
+            for (size_t i = 0; i < translationValue.size(); i++) {
+                //printf("   time: %f | vec x %f, y %f, z %f \n", frameTimes[i], translationValue[i].x, translationValue[i].y, translationValue[i].z);
+            }
+        }
+        else if (channel.target_path == "rotation"){
+            memcpy(&rotationValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::quat) * rotationValue.size());
+            for (size_t i = 0; i < rotationValue.size(); i++) {
+                //printf("   time: %f | vec x %f, y %f, z %f w %f \n", frameTimes[i], rotationValue[i].x, rotationValue[i].y, rotationValue[i].z, rotationValue[i].w);
+            }
+        }
+        else if (channel.target_path == "scale") {
+            memcpy(&scaleValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::vec3) * scaleValue.size());
+            for (size_t i = 0; i < scaleValue.size(); i++) {
+                //printf("   time: %f | vec x %f, y %f, z %f \n", frameTimes[i], scaleValue[i].x, scaleValue[i].y, scaleValue[i].z);
+            }
+        }
+
+		float previousTime = 0.0f;
+		float nextTime = 0.0f;
+        for (size_t i = 0; i < frameTimes.size(); i++) {
+            if (frameTimes[i] < currentTime) {
+                previousTime = frameTimes[i];
+            }
+
+            if (frameTimes[i] > currentTime) {
+                nextTime = frameTimes[i];
+                break;
+            }
+        }
+
+		for (size_t k = 0; k < frameTimes.size(); k++) {
+            if (frameTimes[k] == previousTime) {
+                if (channel.target_path == "translation") {
+                    pose[channel.target_node].nodeId = channel.target_node;
+                    //pose[channel.target_node].translation = translationValue[k];
+                    pose[channel.target_node].translation.x = translationValue[k].x;
+                    pose[channel.target_node].translation.y = translationValue[k].y;
+                    pose[channel.target_node].translation.z = translationValue[k].z;
+                    pose[channel.target_node].name = model.nodes[channel.target_node].name;
+                }
+                else if (channel.target_path == "rotation") {
+                    pose[channel.target_node].nodeId = channel.target_node;
+                    pose[channel.target_node].rotation = rotationValue[k];
+                    pose[channel.target_node].name = model.nodes[channel.target_node].name;
+                }
+                else if (channel.target_path == "scale") {
+                    pose[channel.target_node].nodeId = channel.target_node;
+                    pose[channel.target_node].scale = scaleValue[k];
+                    pose[channel.target_node].name = model.nodes[channel.target_node].name;
+                }
+            }
+		}
+	}
+    return pose;
+}
+
+void drawSkeletonHierarchy(Joint* currentJoint) {
+	drawLine(currentJoint->globalTransform, { 1.0f, 1.0f, 1.0f });
+    for (auto joint : currentJoint->children) {
+        drawSkeletonHierarchy(joint);
+    }
+}
+
+void updateSkeletonHierarchy(Joint* currentJoint, std::map<int, Joint> joints) {
+	auto t = joints.at(currentJoint->nodeId).translation;
+	auto r = joints.at(currentJoint->nodeId).rotation;
+	auto s = joints.at(currentJoint->nodeId).scale;
+
+	currentJoint->localTransform = computeTRSMatrix(t, r, s);
+	if (currentJoint->parent) {
+		currentJoint->globalTransform = currentJoint->parent->globalTransform * currentJoint->localTransform;
+    }
+    else {
+        currentJoint->globalTransform = currentJoint->localTransform;
+    }
+	for (auto& child : currentJoint->children) {
+		updateSkeletonHierarchy(child, joints);
+	}
 }
 
 int main(void) {
@@ -338,13 +461,17 @@ int main(void) {
     lineShader = Shader("../assets/shaders/line");
     
     float timer = 0.0f;
-    auto& model = initModel();
+    auto& model = initModel("../assets/models/mannequin.gltf");
     initLine();
+
+    Joint* root = nullptr;
+    root = new Joint();
+    readSkeletonHierarchy(model, root);
 
     glfwSetScrollCallback(window, scrollCallback);
     glfwSetKeyCallback(window, keyCallback);
+
     while (!glfwWindowShouldClose(window)) {
-	auto joints = getAnimationData(model, currentFrame * 0.1f);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glDepthMask(GL_TRUE);
         glEnable(GL_DEPTH_TEST);
@@ -356,43 +483,9 @@ int main(void) {
 
         drawModel(model, timer);
 
-        for (size_t i = 0; i < joints.size(); i++) {
-			auto& t = model.nodes[i].translation;
-			auto& r = model.nodes[i].rotation;
-			auto& s = model.nodes[i].scale;
-
-            glm::quat rotation{};
-            glm::vec3 translation{};
-            glm::vec3 scale{};
-
-			if (t.size()) {
-				translation = { float(t[0]), float(t[1]), float(t[2]) };
-			}
-			if (r.size()) {
-                rotation = { float(r[0]), float(r[1]), float(r[2]), float(r[3]) };
-			}
-			if (s.size()) {
-                scale = { float(s[0]), float(s[1]), float(s[2]) };
-			}
-
-            glm::mat4 trans = glm::translate(glm::mat4(1.0f), translation);
-			glm::mat4 rotMat = glm::toMat4(rotation);
-
-            if (i == joints[i].nodeId) {
-                glm::mat4 poseRotation = glm::toMat4(joints[i].rotation);
-                rotMat = poseRotation * rotMat;
-            }
-            glm::mat4 transform = rotMat * trans;
-
-            /*if (joints[i].nodeId == 0) {
-				drawLine(transform, { 1.0f, 0.0f, 0.0f });
-            }
-            if (joints[i].nodeId == 1) {
-                drawLine(transform, { 0.0f, 1.0f, 0.0f });
-            }*/
-            drawLine(transform, { 0.0f, 1.0f, 0.0f });
-        }
-
+		const auto& joints = getAnimationData(model, fmod(timer, 0.9f));
+        updateSkeletonHierarchy(root, joints);
+        drawSkeletonHierarchy(root);
 
         glfwSwapBuffers(window);
         glfwPollEvents();

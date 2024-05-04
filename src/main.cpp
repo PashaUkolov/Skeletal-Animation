@@ -20,7 +20,6 @@
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-// #define TINYGLTF_NOEXCEPTION // optional. disable exception handling.
 #include "tinygltf/tiny_gltf.h"
 
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -267,7 +266,6 @@ void drawModel(const tinygltf::Model& model, float timer) {
     for (int i = 0; i < mesh.primitives.size(); ++i) {
         tinygltf::Primitive primitive = mesh.primitives[i];
         tinygltf::Accessor accessor = model.accessors[primitive.indices];
-        auto offset = BUFFER_OFFSET(accessor.byteOffset);
         glBindBuffer(GL_ARRAY_BUFFER, vbos[accessor.bufferView]);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbos[accessor.bufferView]);
         glDrawElements(GL_TRIANGLES, accessor.count, accessor.componentType, BUFFER_OFFSET(accessor.byteOffset));
@@ -283,8 +281,7 @@ glm::mat4 computeTRSMatrix(tinygltf::Node node) {
         translation = { (float)node.translation[0], (float)node.translation[1], (float)node.translation[2] };
     }
     if (node.rotation.size()) {
-        rotation = { (float)node.rotation[3], (float)node.rotation[2], (float)node.rotation[1], (float)node.rotation[0] };
-        //rotation = { (float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3] };
+        rotation = { (float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3] };
     }
     if (node.scale.size()) {
         scale = { (float)node.scale[0], (float)node.scale[1], (float)node.scale[2] };
@@ -297,7 +294,7 @@ glm::mat4 computeTRSMatrix(tinygltf::Node node) {
     return translationMatrix * scaleMatrix * rotationMatrix;
 }
 
-glm::mat4 computeTRSMatrix(glm::vec3 translation, glm::quat rotation, glm::vec3 scale) {
+glm::mat4 computeTRSMatrix(const glm::vec3& translation, const glm::quat& rotation, const glm::vec3& scale) {
     const glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), translation);
     const glm::mat4 rotationMatrix = glm::toMat4(rotation);
     const glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
@@ -305,7 +302,7 @@ glm::mat4 computeTRSMatrix(glm::vec3 translation, glm::quat rotation, glm::vec3 
     return translationMatrix * scaleMatrix * rotationMatrix;
 }
 
-void fillSkeletonHierarchy(const tinygltf::Model& model, tinygltf::Node node, Joint* currentJoint, Joint* parentJoint) {
+void fillSkeletonHierarchy(const tinygltf::Model& model, const tinygltf::Node& node, Joint* currentJoint, Joint* parentJoint) {
     currentJoint->localTransform = computeTRSMatrix(node);
 	if (parentJoint) {
 		currentJoint->globalTransform = parentJoint->globalTransform * currentJoint->localTransform;
@@ -330,9 +327,8 @@ void readSkeletonHierarchy(const tinygltf::Model& model, Joint* root) {
     for (size_t i = 0; i < model.skins.size(); i++) {
         auto& skin = model.skins[i];
         for (size_t j = 0; j < skin.joints.size(); j++) {
-            int jointIndex = skin.joints[j];
-            if (model.nodes[jointIndex].name == "root") {
-                rootJointIndex = jointIndex;
+            if (model.nodes[skin.joints[j]].name == "root") {
+                rootJointIndex = skin.joints[j];
             }
         }
     }
@@ -343,8 +339,8 @@ void readSkeletonHierarchy(const tinygltf::Model& model, Joint* root) {
     fillSkeletonHierarchy(model, model.nodes[rootJointIndex], root, nullptr);
 }
 
-std::map<int, Joint>  getAnimationData(const tinygltf::Model& model, float currentTime) {
-	std::map<int, Joint> pose;
+std::vector<Joint> getAnimationData(const tinygltf::Model& model, float currentTime) {
+	std::vector<Joint> pose(model.nodes.size());
 	auto& animation = model.animations[0];
 	for (int c = 0; c < animation.channels.size(); c++) {
 		auto& channel = animation.channels[c];
@@ -402,10 +398,7 @@ std::map<int, Joint>  getAnimationData(const tinygltf::Model& model, float curre
             if (frameTimes[k] == previousTime) {
                 if (channel.target_path == "translation") {
                     pose[channel.target_node].nodeId = channel.target_node;
-                    //pose[channel.target_node].translation = translationValue[k];
-                    pose[channel.target_node].translation.x = translationValue[k].x;
-                    pose[channel.target_node].translation.y = translationValue[k].y;
-                    pose[channel.target_node].translation.z = translationValue[k].z;
+                    pose[channel.target_node].translation = translationValue[k];
                     pose[channel.target_node].name = model.nodes[channel.target_node].name;
                 }
                 else if (channel.target_path == "rotation") {
@@ -426,17 +419,19 @@ std::map<int, Joint>  getAnimationData(const tinygltf::Model& model, float curre
 
 void drawSkeletonHierarchy(Joint* currentJoint) {
     if (currentJoint->parent) {
-		drawLine(currentJoint->parent->globalTransform, currentJoint->globalTransform, { 1.0f, 1.0f, 1.0f });
+        if (currentJoint->parent->name != "root") {
+			drawLine(currentJoint->parent->globalTransform, currentJoint->globalTransform, { 1.0f, 1.0f, 1.0f });
+        }
     }
     for (auto joint : currentJoint->children) {
         drawSkeletonHierarchy(joint);
     }
 }
 
-void updateSkeletonHierarchy(Joint* currentJoint, std::map<int, Joint> joints) {
-	auto t = joints.at(currentJoint->nodeId).translation;
-	auto r = joints.at(currentJoint->nodeId).rotation;
-	auto s = joints.at(currentJoint->nodeId).scale;
+void updateSkeletonHierarchy(Joint* currentJoint, const std::vector<Joint>& joints) {
+	auto t = joints[currentJoint->nodeId].translation;
+	auto r = joints[currentJoint->nodeId].rotation;
+	auto s = joints[currentJoint->nodeId].scale;
 
 	currentJoint->localTransform = computeTRSMatrix(t, r, s);
 	if (currentJoint->parent) {
@@ -481,6 +476,7 @@ int main(void) {
     glfwSetKeyCallback(window, keyCallback);
 
     while (!glfwWindowShouldClose(window)) {
+        double frameBegin = glfwGetTime();
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glDepthMask(GL_TRUE);
         glEnable(GL_DEPTH_TEST);
@@ -490,11 +486,18 @@ int main(void) {
         
         updateCamera(cam, timer*30.0f);
 
-        drawModel(model, timer);
 
-		const auto& joints = getAnimationData(model, fmod(timer, 0.9f));
+
+        //drawModel(model, timer);
+
+		std::vector<Joint> & joints = getAnimationData(model, fmod(timer, 0.8f));
         updateSkeletonHierarchy(root, joints);
         drawSkeletonHierarchy(root);
+
+        double frameEnd = glfwGetTime();
+        char title[256];
+        sprintf(title, "frame time: %.1f ms", (frameEnd - frameBegin) * 1000.0f);
+        glfwSetWindowTitle(window, title);
 
         glfwSwapBuffers(window);
         glfwPollEvents();

@@ -24,11 +24,12 @@
 
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
+GLuint GL_BIG_DATA_UNIFORM_BINDING = 0;
+const int MAX_JOINTS_COUNT = 500;
+
 const int WIDTH = 1000;
 const int HEIGHT = 1000;
 
-const int MAX_JOINTS = 1000;
-const int MAX_WEIGHTS = 4;
 const int DATA_UNIFORM_BINDING = 0;
 
 float deltaTime = 0.0f;
@@ -116,26 +117,9 @@ void initLine() {
 }
 
 void drawLine(glm::mat4 transform, glm::mat4 transform2, glm::vec3 color) {
-    glm::vec3 scale;
-    glm::quat rotation;
-    glm::vec3 translation;
-    glm::vec3 skew;
-    glm::vec4 perspective;
-    glm::decompose(transform, scale, rotation, translation, skew, perspective);
-
-    glm::vec3 scale2;
-    glm::quat rotation2;
-    glm::vec3 translation2;
-    glm::vec3 skew2;
-    glm::vec4 perspective2;
-    glm::decompose(transform2, scale2, rotation2, translation2, skew2, perspective2);
-    /*float lineVertices[] = {
-        0.0f, 0.0f, 0.0f,
-        0.0f, 0.1f, 0.0f
-    };*/
     float lineVertices[] = {
-        translation.x, translation.y, translation.z,
-        translation2.x, translation2.y, translation2.z
+	    transform[3][0], transform[3][1], transform[3][2],
+	    transform2[3][0], transform2[3][1], transform2[3][2]
     };
 
     glDepthMask(GL_FALSE);
@@ -182,7 +166,11 @@ struct Joint {
 
 GLuint vao;
 std::map<int, GLuint> vbos;
+GLuint ubo;
 tinygltf::Model initModel(const std::string& path) {
+    auto big_data_uniform_index = glGetUniformBlockIndex(shader.id, "data");
+    glUniformBlockBinding(shader.id, big_data_uniform_index, GL_BIG_DATA_UNIFORM_BINDING);
+
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
@@ -198,55 +186,94 @@ tinygltf::Model initModel(const std::string& path) {
         glGenBuffers(1, &modelVBO);
         vbos[i] = modelVBO;
         glBindBuffer(bufferView.target, modelVBO);
-        glBufferData(bufferView.target, bufferView.byteLength, &buffer.data.at(0) + bufferView.byteOffset, GL_STATIC_DRAW);
+        glBufferData(bufferView.target, bufferView.byteLength, &buffer.data.at(0) + bufferView.byteOffset, GL_DYNAMIC_DRAW);
     }
 
     tinygltf::Scene& scene = model.scenes[model.defaultScene];
     auto& mesh = model.meshes[0];
     for (size_t i = 0; i < mesh.primitives.size(); i++) {
         tinygltf::Primitive primitive = mesh.primitives[i];
-
         for (auto& attribute : primitive.attributes) {
             tinygltf::Accessor accessor = model.accessors[attribute.second];
             glBindBuffer(GL_ARRAY_BUFFER, vbos[accessor.bufferView]);
             if (attribute.first == "POSITION") {
                 int size = accessor.type;
-                bool isNormalized = accessor.normalized ? GL_TRUE : GL_FALSE;
                 int stride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
-
                 glEnableVertexAttribArray(0);
-                glVertexAttribPointer(0, size, GL_FLOAT, isNormalized, stride, (void*)(accessor.byteOffset));
+                glVertexAttribPointer(0, size, accessor.componentType, accessor.normalized ? GL_TRUE : GL_FALSE, stride, (void*)(accessor.byteOffset));
             }
             if (attribute.first == "NORMAL") {
                 int size = accessor.type;
                 int stride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
-
                 glEnableVertexAttribArray(1);
-                glVertexAttribPointer(1, size, GL_FLOAT, accessor.normalized ? GL_TRUE : GL_FALSE, stride, (void*)(accessor.byteOffset));
+                glVertexAttribPointer(1, size, accessor.componentType, accessor.normalized ? GL_TRUE : GL_FALSE, stride, (void*)(accessor.byteOffset));
+            }
+            if (attribute.first == "TEXCOORD_0") {
+                int size = accessor.type;
+                int stride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
+                glEnableVertexAttribArray(2);
+                glVertexAttribPointer(2, size, accessor.componentType, accessor.normalized ? GL_TRUE : GL_FALSE, stride, (void*)(accessor.byteOffset));
             }
             if (attribute.first == "JOINTS_0") {
                 int size = accessor.type;
                 int stride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
-
                 glEnableVertexAttribArray(3);
-                glVertexAttribPointer(3, size, GL_FLOAT, accessor.normalized ? GL_TRUE : GL_FALSE, stride, (void*)(accessor.byteOffset));
+                glVertexAttribIPointer(3, size, accessor.componentType, stride, (void*)(accessor.byteOffset));
+                //glVertexAttribPointer(3, size, GL_FLOAT, accessor.normalized ? GL_TRUE : GL_FALSE, stride, (void*)(accessor.byteOffset));
             }
             if (attribute.first == "WEIGHTS_0") {
                 int size = accessor.type;
                 int stride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
-
                 glEnableVertexAttribArray(4);
-                glVertexAttribPointer(4, size, GL_FLOAT, accessor.normalized ? GL_TRUE : GL_FALSE, stride, (void*)(accessor.byteOffset));
+                glVertexAttribPointer(4, size, accessor.componentType, accessor.normalized ? GL_TRUE : GL_FALSE, stride, (void*)(accessor.byteOffset));
             }
         }
     }
+
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    glGenBuffers(1, &ubo);
+    glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(glm::mat4) * MAX_JOINTS_COUNT, NULL, GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_UNIFORM_BUFFER, GL_BIG_DATA_UNIFORM_BINDING, ubo);
+    //glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
     return model;
 }
 
+struct Skeleton {
+    Joint* root;
+    std::vector<Joint*> joints;
+};
+
+Skeleton skeleton;
+std::vector<glm::mat4> ibMatices;
+
+std::vector<glm::mat4> readInverseBindMatrix(const tinygltf::Model& model) {
+	for (size_t i = 0; i < model.skins.size(); i++) {
+		auto& skin = model.skins[i];
+		auto& ibMatrixAccessor = model.accessors[skin.inverseBindMatrices];
+		std::vector<glm::mat4> ibMatrices(ibMatrixAccessor.count);
+		auto& bufferView = model.bufferViews[ibMatrixAccessor.bufferView];
+		auto& buffer = model.buffers[bufferView.buffer];
+		memcpy(&ibMatrices[0], &buffer.data[bufferView.byteOffset], sizeof(glm::mat4) * ibMatrices.size());
+		return ibMatrices;
+	}
+}
+
 void drawModel(const tinygltf::Model& model, float timer) {
+    glm::mat4 jointMatrices[MAX_JOINTS_COUNT] = {};
+    for (int i = 0; i < skeleton.joints.size(); i++) {
+        ibMatices = readInverseBindMatrix(model);
+        skeleton.joints[i]->inverseBindTransform = ibMatices[i];
+        jointMatrices[i] = skeleton.joints[i]->globalTransform * skeleton.joints[i]->inverseBindTransform;
+    }
+
+    glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(glm::mat4) * MAX_JOINTS_COUNT, glm::value_ptr(jointMatrices[0]));
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
     glBindVertexArray(vao);
     glUseProgram(shader.id);
 
@@ -262,6 +289,9 @@ void drawModel(const tinygltf::Model& model, float timer) {
     glUniformMatrix4fv(modelLoc, 1, false, &(modelMatrix[0].x));
     glUniformMatrix4fv(viewLoc, 1, false, &(cam.viewMatrix[0].x));
     glUniformMatrix4fv(projectionLoc, 1, false, &(cam.projectionMatrix[0].x));
+
+    /*GLuint skinningMatricesLoc = glGetUniformLocation(shader.id, "skinningMatrices");
+    glUniformMatrix4fv(skinningMatricesLoc, 300, false, glm::value_ptr(jointMatrices[0]));*/
 
     for (int i = 0; i < mesh.primitives.size(); ++i) {
         tinygltf::Primitive primitive = mesh.primitives[i];
@@ -311,6 +341,7 @@ void fillSkeletonHierarchy(const tinygltf::Model& model, const tinygltf::Node& n
         currentJoint->globalTransform = currentJoint->localTransform;
     }
     currentJoint->name = node.name;
+    skeleton.joints.push_back(currentJoint);
 
     for (auto& child : node.children) {
         Joint* childJonit = nullptr;
@@ -336,6 +367,7 @@ void readSkeletonHierarchy(const tinygltf::Model& model, Joint* root) {
         return;
     }
     root->nodeId = rootJointIndex;
+    skeleton.root = root;
     fillSkeletonHierarchy(model, model.nodes[rootJointIndex], root, nullptr);
 }
 
@@ -364,21 +396,12 @@ std::vector<Joint> getAnimationData(const tinygltf::Model& model, float currentT
 
         if (channel.target_path == "translation") {
             memcpy(&translationValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::vec3) * translationValue.size());
-            for (size_t i = 0; i < translationValue.size(); i++) {
-                //printf("   time: %f | vec x %f, y %f, z %f \n", frameTimes[i], translationValue[i].x, translationValue[i].y, translationValue[i].z);
-            }
         }
         else if (channel.target_path == "rotation"){
             memcpy(&rotationValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::quat) * rotationValue.size());
-            for (size_t i = 0; i < rotationValue.size(); i++) {
-                //printf("   time: %f | vec x %f, y %f, z %f w %f \n", frameTimes[i], rotationValue[i].x, rotationValue[i].y, rotationValue[i].z, rotationValue[i].w);
-            }
         }
         else if (channel.target_path == "scale") {
             memcpy(&scaleValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::vec3) * scaleValue.size());
-            for (size_t i = 0; i < scaleValue.size(); i++) {
-                //printf("   time: %f | vec x %f, y %f, z %f \n", frameTimes[i], scaleValue[i].x, scaleValue[i].y, scaleValue[i].z);
-            }
         }
 
 		float previousTime = 0.0f;
@@ -428,10 +451,10 @@ void drawSkeletonHierarchy(Joint* currentJoint) {
     }
 }
 
-void updateSkeletonHierarchy(Joint* currentJoint, const std::vector<Joint>& joints) {
-	auto t = joints[currentJoint->nodeId].translation;
-	auto r = joints[currentJoint->nodeId].rotation;
-	auto s = joints[currentJoint->nodeId].scale;
+void updateSkeletonHierarchy(Joint* currentJoint, const std::vector<Joint>& pose) {
+	auto t = pose[currentJoint->nodeId].translation;
+	auto r = pose[currentJoint->nodeId].rotation;
+	auto s = pose[currentJoint->nodeId].scale;
 
 	currentJoint->localTransform = computeTRSMatrix(t, r, s);
 	if (currentJoint->parent) {
@@ -441,7 +464,7 @@ void updateSkeletonHierarchy(Joint* currentJoint, const std::vector<Joint>& join
         currentJoint->globalTransform = currentJoint->localTransform;
     }
 	for (auto& child : currentJoint->children) {
-		updateSkeletonHierarchy(child, joints);
+		updateSkeletonHierarchy(child, pose);
 	}
 }
 
@@ -466,6 +489,7 @@ int main(void) {
     
     float timer = 0.0f;
     auto& model = initModel("../assets/models/mannequin.gltf");
+    //auto& model = initModel("../assets/models/skin2.gltf");
     initLine();
 
     Joint* root = nullptr;
@@ -486,13 +510,20 @@ int main(void) {
         
         updateCamera(cam, timer*30.0f);
 
+		std::vector<Joint>& pose = getAnimationData(model, fmod(timer, 0.8f));
 
+        drawModel(model, timer);
 
-        //drawModel(model, timer);
-
-		std::vector<Joint> & joints = getAnimationData(model, fmod(timer, 0.8f));
-        updateSkeletonHierarchy(root, joints);
+        updateSkeletonHierarchy(root, pose);
         drawSkeletonHierarchy(root);
+
+        glm::mat4 transform1 = glm::mat4(1.0);
+        glm::mat4 transformX = glm::translate(transform1, glm::vec3(1.0, 0.0f, 0.0f));
+        glm::mat4 transformY = glm::translate(transform1, glm::vec3(0.0, 1.0f, 0.0f));
+        glm::mat4 transformZ = glm::translate(transform1, glm::vec3(0.0, 0.0f, 1.0f));
+        drawLine(transform1, transformX, glm::vec3(1.0f, 0.0f, 0.0f));
+        drawLine(transform1, transformY, glm::vec3(0.0f, 1.0f, 0.0f));
+        drawLine(transform1, transformZ, glm::vec3(0.0f, 0.0f, 1.0f));
 
         double frameEnd = glfwGetTime();
         char title[256];

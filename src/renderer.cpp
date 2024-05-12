@@ -10,20 +10,19 @@
 
 #include "camera.h"
 
-static GLuint lineVao, lineVbo;
+namespace {
+	GLuint lineVao, lineVbo;
+}
 
 Renderer::Renderer() {
     initLine();
 }
 
-Renderer::~Renderer() {
-}
-
 Renderer* Renderer::getInstance() {
-    if (!instance) {
-        instance = new Renderer();
+    if (!mInstance) {
+        mInstance = new Renderer();
     }
-    return instance;
+    return mInstance;
 }
 
 void Renderer::initLine() {
@@ -42,7 +41,7 @@ void Renderer::initLine() {
 }
 
 void Renderer::drawLine(glm::mat4 transform, glm::mat4 transform2, glm::vec3 color) {
-    float lineVertices[] = {
+    const float lineVertices[] = {
         transform[3][0], transform[3][1], transform[3][2],
         transform2[3][0], transform2[3][1], transform2[3][2]
     };
@@ -54,15 +53,12 @@ void Renderer::drawLine(glm::mat4 transform, glm::mat4 transform2, glm::vec3 col
     glBufferData(GL_ARRAY_BUFFER, sizeof(lineVertices), lineVertices, GL_STATIC_DRAW);
     glUseProgram(mLineShader.id);
 
-    GLuint modelLoc = glGetUniformLocation(mLineShader.id, "model");
-    GLuint viewLoc = glGetUniformLocation(mLineShader.id, "view");
-    GLuint projectionLoc = glGetUniformLocation(mLineShader.id, "projection");
-    GLuint colorLoc = glGetUniformLocation(mLineShader.id, "fColor");
+    const GLint modelLoc = glGetUniformLocation(mLineShader.id, "model");
+    const GLint viewLoc = glGetUniformLocation(mLineShader.id, "view");
+    const GLint projectionLoc = glGetUniformLocation(mLineShader.id, "projection");
+    const GLint colorLoc = glGetUniformLocation(mLineShader.id, "fColor");
 
-    glm::mat4 modelMatrix = glm::mat4(1.0f);
-    modelMatrix = mCamera.transform /** transform*/;
-
-    glUniformMatrix4fv(modelLoc, 1, false, &(modelMatrix[0].x));
+    glUniformMatrix4fv(modelLoc, 1, false, &(mCamera.transform[0].x));
     glUniformMatrix4fv(viewLoc, 1, false, &(mCamera.viewMatrix[0].x));
     glUniformMatrix4fv(projectionLoc, 1, false, &(mCamera.projectionMatrix[0].x));
     glUniform3fv(colorLoc, 1, &color.x);

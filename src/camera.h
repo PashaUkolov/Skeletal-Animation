@@ -6,11 +6,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-
-static float zoomLevel = 0.0f;
-
-const int WIDTH = 1000;
-const int HEIGHT = 1000;
+constexpr int WIDTH = 1080;
+constexpr int HEIGHT = 720;
 
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset);
 
@@ -20,5 +17,5 @@ struct Camera {
     glm::mat4 projectionMatrix;
 
 
-    void updateCamera(float timer);
+    void updateCamera(const double timer);
 };

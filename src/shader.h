@@ -4,7 +4,7 @@
 
 struct Shader {
 	Shader() = default;
-	Shader(const std::string& path);
+	explicit Shader(const std::string& path);
 	GLuint id;
 private:
 	void compileShader(const std::string& path);

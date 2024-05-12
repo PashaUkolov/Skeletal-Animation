@@ -5,8 +5,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
-#include "animatedModel.h"
-#include "renderer.h"
 
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
@@ -27,23 +25,25 @@ tinygltf::Model AnimatedModel::loadModel(const std::string& path) {
 }
 
 std::vector<glm::mat4> AnimatedModel::readInverseBindMatrix(const tinygltf::Model& model) {
+    std::vector<glm::mat4> matrices;
     for (size_t i = 0; i < model.skins.size(); i++) {
         auto& skin = model.skins[i];
         auto& ibMatrixAccessor = model.accessors[skin.inverseBindMatrices];
-        std::vector<glm::mat4> ibMatrices(ibMatrixAccessor.count);
+        matrices.resize(ibMatrixAccessor.count);
         auto& bufferView = model.bufferViews[ibMatrixAccessor.bufferView];
         auto& buffer = model.buffers[bufferView.buffer];
-        memcpy(&ibMatrices[0], &buffer.data[bufferView.byteOffset], sizeof(glm::mat4) * ibMatrices.size());
-        return ibMatrices;
+        memcpy(matrices.data(), &buffer.data[bufferView.byteOffset], sizeof(glm::mat4) * matrices.size());
+        break;
     }
+	return matrices;
 }
 
 tinygltf::Model AnimatedModel::initModel(const std::string& path) {
     auto big_data_uniform_index = glGetUniformBlockIndex(Renderer::getInstance()->getShader().id, "data");
     glUniformBlockBinding(Renderer::getInstance()->getShader().id, big_data_uniform_index, DATA_UNIFORM_BINDING);
 
-    glGenVertexArrays(1, &vao);
-    glBindVertexArray(vao);
+    glGenVertexArrays(1, &mVao);
+    glBindVertexArray(mVao);
 
     tinygltf::Model model = loadModel(path);
 
@@ -52,11 +52,11 @@ tinygltf::Model AnimatedModel::initModel(const std::string& path) {
         if (bufferView.target == 0) {
             continue;
         }
-        GLuint modelVBO{};
+        GLuint modelVbo{};
         tinygltf::Buffer buffer = model.buffers[bufferView.buffer];
-        glGenBuffers(1, &modelVBO);
-        vbos[i] = modelVBO;
-        glBindBuffer(bufferView.target, modelVBO);
+        glGenBuffers(1, &modelVbo);
+        mVbos[i] = modelVbo;
+        glBindBuffer(bufferView.target, modelVbo);
         glBufferData(bufferView.target, bufferView.byteLength, &buffer.data.at(0) + bufferView.byteOffset, GL_DYNAMIC_DRAW);
     }
 
@@ -64,34 +64,34 @@ tinygltf::Model AnimatedModel::initModel(const std::string& path) {
     auto& mesh = model.meshes[0];
     for (size_t i = 0; i < mesh.primitives.size(); i++) {
         tinygltf::Primitive primitive = mesh.primitives[i];
-        for (auto& attribute : primitive.attributes) {
-            tinygltf::Accessor accessor = model.accessors[attribute.second];
-            glBindBuffer(GL_ARRAY_BUFFER, vbos[accessor.bufferView]);
-            if (attribute.first == "POSITION") {
+        for (auto& [attribute, accessorIndex ]: primitive.attributes) {
+            tinygltf::Accessor accessor = model.accessors[accessorIndex];
+            glBindBuffer(GL_ARRAY_BUFFER, mVbos[accessor.bufferView]);
+            if (attribute == "POSITION") {
                 int size = accessor.type;
                 int stride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
                 glEnableVertexAttribArray(0);
                 glVertexAttribPointer(0, size, accessor.componentType, accessor.normalized ? GL_TRUE : GL_FALSE, stride, (void*)(accessor.byteOffset));
             }
-            if (attribute.first == "NORMAL") {
+            if (attribute == "NORMAL") {
                 int size = accessor.type;
                 int stride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
                 glEnableVertexAttribArray(1);
                 glVertexAttribPointer(1, size, accessor.componentType, accessor.normalized ? GL_TRUE : GL_FALSE, stride, (void*)(accessor.byteOffset));
             }
-            if (attribute.first == "TEXCOORD_0") {
+            if (attribute == "TEXCOORD_0") {
                 int size = accessor.type;
                 int stride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
                 glEnableVertexAttribArray(2);
                 glVertexAttribPointer(2, size, accessor.componentType, accessor.normalized ? GL_TRUE : GL_FALSE, stride, (void*)(accessor.byteOffset));
             }
-            if (attribute.first == "JOINTS_0") {
+            if (attribute == "JOINTS_0") {
                 int size = accessor.type;
                 int stride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
                 glEnableVertexAttribArray(3);
                 glVertexAttribIPointer(3, size, accessor.componentType, stride, (void*)(accessor.byteOffset));
             }
-            if (attribute.first == "WEIGHTS_0") {
+            if (attribute == "WEIGHTS_0") {
                 int size = accessor.type;
                 int stride = accessor.ByteStride(model.bufferViews[accessor.bufferView]);
                 glEnableVertexAttribArray(4);
@@ -103,35 +103,36 @@ tinygltf::Model AnimatedModel::initModel(const std::string& path) {
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    glGenBuffers(1, &ubo);
-    glBindBuffer(GL_UNIFORM_BUFFER, ubo);
-    glBufferData(GL_UNIFORM_BUFFER, sizeof(glm::mat4) * MAX_JOINTS_COUNT, NULL, GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_UNIFORM_BUFFER, DATA_UNIFORM_BINDING, ubo);
+    glGenBuffers(1, &mUbo);
+    glBindBuffer(GL_UNIFORM_BUFFER, mUbo);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(glm::mat4) * MAX_JOINTS_COUNT, nullptr, GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_UNIFORM_BUFFER, DATA_UNIFORM_BINDING, mUbo);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
     return model;
 }
 
-void AnimatedModel::drawModel(Camera& cam, const tinygltf::Model& model, float timer) {
-    glm::mat4 jointMatrices[MAX_JOINTS_COUNT] = {};
+void AnimatedModel::drawModel(Camera& cam, const tinygltf::Model& model, float timer) const {
+    static glm::mat4 jointMatrices[MAX_JOINTS_COUNT] = {};
     for (int i = 0; i < skeleton.joints.size(); i++) {
-        ibMatices = readInverseBindMatrix(model);
-        skeleton.joints[i]->inverseBindTransform = ibMatices[i];
-        jointMatrices[i] = skeleton.joints[i]->globalTransform * skeleton.joints[i]->inverseBindTransform;
+        if(i < ibMatrices.size()) {
+			skeleton.joints[i]->inverseBindTransform = ibMatrices[i];
+			jointMatrices[i] = skeleton.joints[i]->globalTransform * skeleton.joints[i]->inverseBindTransform;
+        }
     }
 
-    glBindBuffer(GL_UNIFORM_BUFFER, ubo);
+    glBindBuffer(GL_UNIFORM_BUFFER, mUbo);
     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(glm::mat4) * MAX_JOINTS_COUNT, glm::value_ptr(jointMatrices[0]));
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
-    glBindVertexArray(vao);
+    glBindVertexArray(mVao);
     glUseProgram(Renderer::getInstance()->getShader().id);
 
     auto& mesh = model.meshes[0];
 
-    GLuint modelLoc = glGetUniformLocation(Renderer::getInstance()->getShader().id, "model");
-    GLuint viewLoc = glGetUniformLocation(Renderer::getInstance()->getShader().id, "view");
-    GLuint projectionLoc = glGetUniformLocation(Renderer::getInstance()->getShader().id, "projection");
+    GLint modelLoc = glGetUniformLocation(Renderer::getInstance()->getShader().id, "model");
+    GLint viewLoc = glGetUniformLocation(Renderer::getInstance()->getShader().id, "view");
+    GLint projectionLoc = glGetUniformLocation(Renderer::getInstance()->getShader().id, "projection");
 
     glm::mat4 modelMatrix = glm::mat4(1.0f);
     modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 0.0f, 0.0f));
@@ -140,27 +141,25 @@ void AnimatedModel::drawModel(Camera& cam, const tinygltf::Model& model, float t
     glUniformMatrix4fv(viewLoc, 1, false, &(cam.viewMatrix[0].x));
     glUniformMatrix4fv(projectionLoc, 1, false, &(cam.projectionMatrix[0].x));
 
-    for (int i = 0; i < mesh.primitives.size(); ++i) {
+    for (size_t i = 0; i < mesh.primitives.size(); ++i) {
         tinygltf::Primitive primitive = mesh.primitives[i];
         tinygltf::Accessor accessor = model.accessors[primitive.indices];
-        glBindBuffer(GL_ARRAY_BUFFER, vbos[accessor.bufferView]);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbos[accessor.bufferView]);
         glDrawElements(GL_TRIANGLES, accessor.count, accessor.componentType, BUFFER_OFFSET(accessor.byteOffset));
     }
 }
 
-glm::mat4 AnimatedModel::computeTRSMatrix(tinygltf::Node node) {
+glm::mat4 AnimatedModel::computeTrsMatrix(const tinygltf::Node& node) {
     glm::vec3 translation{ 0.0f };
     glm::quat rotation{};
     glm::vec3 scale{ 1.0f };
 
-    if (node.translation.size()) {
+    if (!node.translation.empty()) {
         translation = { (float)node.translation[0], (float)node.translation[1], (float)node.translation[2] };
     }
-    if (node.rotation.size()) {
+    if (!node.rotation.empty()) {
         rotation = { (float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3] };
     }
-    if (node.scale.size()) {
+    if (!node.scale.empty()) {
         scale = { (float)node.scale[0], (float)node.scale[1], (float)node.scale[2] };
     }
 
@@ -171,7 +170,7 @@ glm::mat4 AnimatedModel::computeTRSMatrix(tinygltf::Node node) {
     return translationMatrix * scaleMatrix * rotationMatrix;
 }
 
-glm::mat4 AnimatedModel::computeTRSMatrix(const glm::vec3& translation, const glm::quat& rotation, const glm::vec3& scale) {
+glm::mat4 AnimatedModel::computeTrsMatrix(const glm::vec3& translation, const glm::quat& rotation, const glm::vec3& scale) {
     const glm::mat4 translationMatrix = glm::translate(glm::mat4(1.0f), translation);
     const glm::mat4 rotationMatrix = glm::toMat4(rotation);
     const glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.0f), scale);
@@ -180,7 +179,7 @@ glm::mat4 AnimatedModel::computeTRSMatrix(const glm::vec3& translation, const gl
 }
 
 void AnimatedModel::fillSkeletonHierarchy(const tinygltf::Model& model, const tinygltf::Node& node, Joint* currentJoint, Joint* parentJoint) {
-    currentJoint->localTransform = computeTRSMatrix(node);
+    currentJoint->localTransform = computeTrsMatrix(node);
     if (parentJoint) {
         currentJoint->globalTransform = parentJoint->globalTransform * currentJoint->localTransform;
     }
@@ -191,12 +190,12 @@ void AnimatedModel::fillSkeletonHierarchy(const tinygltf::Model& model, const ti
     skeleton.joints.push_back(currentJoint);
 
     for (auto& child : node.children) {
-        Joint* childJonit = nullptr;
-        childJonit = new Joint();
-        childJonit->nodeId = child;
-        childJonit->parent = currentJoint;
-        currentJoint->addChild(childJonit);
-        fillSkeletonHierarchy(model, model.nodes[child], childJonit, currentJoint);
+        Joint* childJoint = nullptr;
+        childJoint = new Joint();
+        childJoint->nodeId = child;
+        childJoint->parent = currentJoint;
+        currentJoint->addChild(childJoint);
+        fillSkeletonHierarchy(model, model.nodes[child], childJoint, currentJoint);
     }
 }
 
@@ -218,10 +217,10 @@ void AnimatedModel::readSkeletonHierarchy(const tinygltf::Model& model, Joint* r
     fillSkeletonHierarchy(model, model.nodes[rootJointIndex], root, nullptr);
 }
 
-std::vector<Joint> AnimatedModel::getAnimationData(const tinygltf::Model& model, float currentTime) {
+std::vector<Joint> AnimatedModel::getAnimationData(const tinygltf::Model& model, double currentTime) {
     std::vector<Joint> pose(model.nodes.size());
     auto& animation = model.animations[0];
-    for (int c = 0; c < animation.channels.size(); c++) {
+    for (size_t c = 0; c < animation.channels.size(); c++) {
         auto& channel = animation.channels[c];
         auto& sampler = animation.samplers[channel.sampler];
         auto& inputAccessor = model.accessors[sampler.input];
@@ -231,34 +230,31 @@ std::vector<Joint> AnimatedModel::getAnimationData(const tinygltf::Model& model,
         auto& outputBufferView = model.bufferViews[outputAccessor.bufferView];
         auto& outputBuffer = model.buffers[outputBufferView.buffer];
 
-        //printf("node %d: %s\n", channel.target_node, model.nodes[channel.target_node].name.c_str());
-        //printf(" channel: %s \n", channel.target_path.c_str());
-
         std::vector<float> frameTimes(inputAccessor.count);
-        memcpy(&frameTimes[0], &inputBuffer.data[inputBufferView.byteOffset], sizeof(float) * frameTimes.size());
+        memcpy(frameTimes.data(), &inputBuffer.data[inputBufferView.byteOffset], sizeof(float) * frameTimes.size());
 
         std::vector<glm::vec3> translationValue(outputAccessor.count);
         std::vector<glm::quat> rotationValue(outputAccessor.count);
         std::vector<glm::vec3> scaleValue(outputAccessor.count);
 
         if (channel.target_path == "translation") {
-            memcpy(&translationValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::vec3) * translationValue.size());
+            memcpy(translationValue.data(), &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::vec3) * translationValue.size());
         }
         else if (channel.target_path == "rotation") {
-            memcpy(&rotationValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::quat) * rotationValue.size());
+            memcpy(rotationValue.data(), &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::quat) * rotationValue.size());
         }
         else if (channel.target_path == "scale") {
-            memcpy(&scaleValue[0], &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::vec3) * scaleValue.size());
+            memcpy(scaleValue.data(), &outputBuffer.data[outputBufferView.byteOffset], sizeof(glm::vec3) * scaleValue.size());
         }
 
         float previousTime = 0.0f;
-        float nextTime = 0.0f;
         for (size_t i = 0; i < frameTimes.size(); i++) {
             if (frameTimes[i] < currentTime) {
                 previousTime = frameTimes[i];
             }
 
             if (frameTimes[i] > currentTime) {
+				float nextTime = 0.0f;
                 nextTime = frameTimes[i];
                 break;
             }
@@ -287,13 +283,13 @@ std::vector<Joint> AnimatedModel::getAnimationData(const tinygltf::Model& model,
     return pose;
 }
 
-void AnimatedModel::drawSkeletonHierarchy(Joint* currentJoint) {
+void AnimatedModel::drawSkeletonHierarchy(const Joint* currentJoint) {
     if (currentJoint->parent) {
         if (currentJoint->parent->name != "root") {
             Renderer::getInstance()->drawLine(currentJoint->parent->globalTransform, currentJoint->globalTransform, { 1.0f, 1.0f, 1.0f });
         }
     }
-    for (auto joint : currentJoint->children) {
+    for (const auto& joint : currentJoint->children) {
         drawSkeletonHierarchy(joint);
     }
 }
@@ -303,23 +299,23 @@ void AnimatedModel::updateSkeletonHierarchy(Joint* currentJoint, const std::vect
     auto r = pose[currentJoint->nodeId].rotation;
     auto s = pose[currentJoint->nodeId].scale;
 
-    currentJoint->localTransform = computeTRSMatrix(t, r, s);
+    currentJoint->localTransform = computeTrsMatrix(t, r, s);
     if (currentJoint->parent) {
         currentJoint->globalTransform = currentJoint->parent->globalTransform * currentJoint->localTransform;
     }
     else {
         currentJoint->globalTransform = currentJoint->localTransform;
     }
-    for (auto& child : currentJoint->children) {
+    for (const auto& child : currentJoint->children) {
         updateSkeletonHierarchy(child, pose);
     }
 }
 
-void AnimatedModel::draw() {
-    std::vector<Joint>& pose = getAnimationData(mModel, 0.0f/*fmod(timer, 0.8f)*/);
+void AnimatedModel::draw(const double timer) {
+    const std::vector<Joint>& pose = getAnimationData(mModel, fmod(timer, 0.8));
 
     drawModel(Renderer::getInstance()->getCamera(), mModel, 0.0f);
 
-    updateSkeletonHierarchy(root, pose);
-    drawSkeletonHierarchy(root);
+    updateSkeletonHierarchy(mRoot, pose);
+    drawSkeletonHierarchy(mRoot);
 }

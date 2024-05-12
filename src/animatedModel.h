@@ -6,9 +6,8 @@
 
 #include "tinygltf/tiny_gltf.h"
 #include "camera.h"
-#include "shader.h"
 
-const int MAX_JOINTS_COUNT = 500;
+constexpr int MAX_JOINTS_COUNT = 500;
 
 struct Joint {
     std::vector<Joint*> children;
@@ -38,30 +37,28 @@ class AnimatedModel {
 public:
     AnimatedModel();
     Skeleton skeleton;
-    std::vector<glm::mat4> ibMatices;
+    std::vector<glm::mat4> ibMatrices;
 
-    GLuint vao;
-    std::map<int, GLuint> vbos;
-    GLuint ubo;
-    GLuint DATA_UNIFORM_BINDING = 0;
-
-    tinygltf::Model loadModel(const std::string& path);
+    static tinygltf::Model loadModel(const std::string& path);
     tinygltf::Model initModel(const std::string& path);
-    std::vector<glm::mat4> readInverseBindMatrix(const tinygltf::Model& model);
-    void drawModel(Camera& cam, const tinygltf::Model& model, float timer);
+    static std::vector<glm::mat4> readInverseBindMatrix(const tinygltf::Model& model);
+    void drawModel(Camera& cam, const tinygltf::Model& model, float timer) const;
     void fillSkeletonHierarchy(const tinygltf::Model& model, const tinygltf::Node& node, Joint* currentJoint, Joint* parentJoint);
     void readSkeletonHierarchy(const tinygltf::Model& model, Joint* root);
 
-    void draw();
+    void draw(const double timer);
 private:
-    std::vector<Joint> getAnimationData(const tinygltf::Model& model, float currentTime);
-    void drawSkeletonHierarchy(Joint* currentJoint);
-    void updateSkeletonHierarchy(Joint* currentJoint, const std::vector<Joint>& pose);
-    glm::mat4 computeTRSMatrix(tinygltf::Node node);
-    glm::mat4 computeTRSMatrix(const glm::vec3& translation, const glm::quat& rotation, const glm::vec3& scale);
-
+    static std::vector<Joint> getAnimationData(const tinygltf::Model& model, double currentTime);
+    static void drawSkeletonHierarchy(const Joint* currentJoint);
+    static void updateSkeletonHierarchy(Joint* currentJoint, const std::vector<Joint>& pose);
+    static glm::mat4 computeTrsMatrix(const tinygltf::Node& node);
+    static glm::mat4 computeTrsMatrix(const glm::vec3& translation, const glm::quat& rotation, const glm::vec3& scale);
 private:
+    GLuint mVao;
+    std::map<size_t, GLuint> mVbos;
+    GLuint mUbo;
+    GLuint DATA_UNIFORM_BINDING = 0;
     tinygltf::Model mModel;
-    Joint* root = nullptr;
+    Joint* mRoot = nullptr;
 };
 

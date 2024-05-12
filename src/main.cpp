@@ -24,19 +24,17 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "tinygltf/tiny_gltf.h"
 
-float deltaTime = 0.0f;
-float lastFrame = 0.0f;
+double deltaTime = 0.0f;
+double lastFrame = 0.0f;
 
-
-float getFrameTime() {
-    double currentTime = glfwGetTime();
+double getFrameTime() {
+    const double currentTime = glfwGetTime();
     deltaTime = currentTime - lastFrame;
     lastFrame = currentTime;
     return deltaTime;
 }
 
 void printMatrix(const glm::mat4& matrix) {
-    //system("cls");
     printf("MATRIX ========\n");
     for (int i = 0; i < 4; ++i) {
         for (int j = 0; j < 4; ++j) {
@@ -53,7 +51,7 @@ int main(void) {
 
     GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "SkeletalAnimation", 0, 0);
     if (!window) {
-        printf("ubable to create window\n");
+        printf("unable to create window\n");
         glfwTerminate();
     }
 
@@ -66,11 +64,11 @@ int main(void) {
 
     Renderer* renderer = Renderer::getInstance();
 
-    float timer = 0.0f;
+    double timer = 0.0f;
     AnimatedModel animatedModel;
 
     while (!glfwWindowShouldClose(window)) {
-        double frameBegin = glfwGetTime();
+        const double frameBegin = glfwGetTime();
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glDepthMask(GL_TRUE);
         glEnable(GL_DEPTH_TEST);
@@ -80,9 +78,9 @@ int main(void) {
         
         renderer->getCamera().updateCamera(timer * 30.0f);
 
-        animatedModel.draw();
+        animatedModel.draw(timer);
 
-        double frameEnd = glfwGetTime();
+        const double frameEnd = glfwGetTime();
         char title[256];
         sprintf(title, "frame time: %.1f ms", (frameEnd - frameBegin) * 1000.0f);
         glfwSetWindowTitle(window, title);
@@ -90,6 +88,8 @@ int main(void) {
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
+
+    _CrtDumpMemoryLeaks();
 
     return 0;
 }

@@ -46,7 +46,7 @@ public:
     void fillSkeletonHierarchy(const tinygltf::Model& model, const tinygltf::Node& node, Joint* currentJoint, Joint* parentJoint);
     void readSkeletonHierarchy(const tinygltf::Model& model, Joint* root);
 
-    void draw(const double timer);
+    void draw(const double timer) const;
 private:
     static std::vector<Joint> getAnimationData(const tinygltf::Model& model, double currentTime);
     static void drawSkeletonHierarchy(const Joint* currentJoint);

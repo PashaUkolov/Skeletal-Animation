@@ -9,6 +9,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include "camera.h"
+#include "utils.h"
 
 namespace {
 	GLuint lineVao, lineVbo;
@@ -45,7 +46,6 @@ void Renderer::drawLine(glm::mat4 transform, glm::mat4 transform2, glm::vec3 col
         transform[3][0], transform[3][1], transform[3][2],
         transform2[3][0], transform2[3][1], transform2[3][2]
     };
-
     glDepthMask(GL_FALSE);
     glDisable(GL_DEPTH_TEST);
     glBindVertexArray(lineVao);

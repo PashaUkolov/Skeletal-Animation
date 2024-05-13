@@ -6,12 +6,17 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
 
+#include "utils.h"
+
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
 AnimatedModel::AnimatedModel() {
     mModel = initModel("../assets/models/mannequin.gltf");
-    root = new Joint();
-    readSkeletonHierarchy(mModel, root);
+    //mModel = initModel("../assets/models/cat/scene.gltf");
+    mRoot = new Joint();
+    readSkeletonHierarchy(mModel, mRoot);
+
+    ibMatrices = readInverseBindMatrix(mModel);
 }
 
 tinygltf::Model AnimatedModel::loadModel(const std::string& path) {
@@ -115,10 +120,11 @@ tinygltf::Model AnimatedModel::initModel(const std::string& path) {
 void AnimatedModel::drawModel(Camera& cam, const tinygltf::Model& model, float timer) const {
     static glm::mat4 jointMatrices[MAX_JOINTS_COUNT] = {};
     for (int i = 0; i < skeleton.joints.size(); i++) {
-        if(i < ibMatrices.size()) {
-			skeleton.joints[i]->inverseBindTransform = ibMatrices[i];
-			jointMatrices[i] = skeleton.joints[i]->globalTransform * skeleton.joints[i]->inverseBindTransform;
+        if(i >= ibMatrices.size()) {
+            break;
         }
+		skeleton.joints[i]->inverseBindTransform = ibMatrices[i];
+		jointMatrices[i] = skeleton.joints[i]->globalTransform * skeleton.joints[i]->inverseBindTransform;
     }
 
     glBindBuffer(GL_UNIFORM_BUFFER, mUbo);
@@ -208,6 +214,7 @@ void AnimatedModel::readSkeletonHierarchy(const tinygltf::Model& model, Joint* r
                 rootJointIndex = skin.joints[j];
             }
         }
+		//rootJointIndex = skin.joints[0];
     }
     if (rootJointIndex == -1) {
         return;
@@ -299,7 +306,12 @@ void AnimatedModel::updateSkeletonHierarchy(Joint* currentJoint, const std::vect
     auto r = pose[currentJoint->nodeId].rotation;
     auto s = pose[currentJoint->nodeId].scale;
 
-    currentJoint->localTransform = computeTrsMatrix(t, r, s);
+        currentJoint->localTransform = computeTrsMatrix(t, r, s);
+    /*if (currentJoint->parent) {
+    } else {
+        currentJoint->localTransform = glm::mat4(1.0f);
+    }*/
+    //printMat4(currentJoint->localTransform);
     if (currentJoint->parent) {
         currentJoint->globalTransform = currentJoint->parent->globalTransform * currentJoint->localTransform;
     }
@@ -311,7 +323,7 @@ void AnimatedModel::updateSkeletonHierarchy(Joint* currentJoint, const std::vect
     }
 }
 
-void AnimatedModel::draw(const double timer) {
+void AnimatedModel::draw(const double timer) const {
     const std::vector<Joint>& pose = getAnimationData(mModel, fmod(timer, 0.8));
 
     drawModel(Renderer::getInstance()->getCamera(), mModel, 0.0f);

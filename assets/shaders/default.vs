@@ -26,6 +26,8 @@ void main() {
         totalNormal += poseNormal * weights[i];
     }
     gl_Position = projection * view * model * vec4(totalPos, 1.0);
-
     normal = totalNormal;
+
+    // gl_Position = projection * view * model * vec4(iPos, 1.0);
+    // normal = iNormal;
 }

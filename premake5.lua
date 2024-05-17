@@ -41,6 +41,7 @@ project "SkeletalAnimation"
 		"opengl32.lib",
 		"glew32s.lib",
 		"glfw3.lib",
+		"freetype.lib"
 	}
 	
 	includedirs {"src", "libs"}
@@ -49,6 +50,7 @@ project "SkeletalAnimation"
 		"libs/glfw",
 		"libs/glew",
 		"libs/tinygltf",
+		"libs/freetype"
 	}
 
 	vpaths 

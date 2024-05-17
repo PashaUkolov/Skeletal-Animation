@@ -65,3 +65,7 @@ void Renderer::drawLine(glm::mat4 transform, glm::mat4 transform2, glm::vec3 col
 
     glDrawArrays(GL_LINES, 0, 3);
 }
+
+void Renderer::drawGrid() {
+
+}

@@ -9,6 +9,7 @@ public:
 	static Renderer* getInstance();
 	void initLine();
 	void drawLine(glm::mat4 transform, glm::mat4 transform2, glm::vec3 color);
+	void drawGrid();
 	Camera& getCamera() { return mCamera; };
 	Shader& getShader() { return mShader; };
 private:

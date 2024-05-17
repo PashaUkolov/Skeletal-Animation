@@ -39,14 +39,15 @@ public:
     Skeleton skeleton;
     std::vector<glm::mat4> ibMatrices;
 
+    void updateMeshAtrributes(const tinygltf::Mesh& mesh, const tinygltf::Model& model);
     static tinygltf::Model loadModel(const std::string& path);
     tinygltf::Model initModel(const std::string& path);
     static std::vector<glm::mat4> readInverseBindMatrix(const tinygltf::Model& model);
-    void drawModel(Camera& cam, const tinygltf::Model& model, float timer) const;
     void fillSkeletonHierarchy(const tinygltf::Model& model, const tinygltf::Node& node, Joint* currentJoint, Joint* parentJoint);
     void readSkeletonHierarchy(const tinygltf::Model& model, Joint* root);
 
-    void draw(const double timer) const;
+    void drawModel(Camera& cam, const tinygltf::Model& model);
+    void draw(const double timer);
 private:
     static std::vector<Joint> getAnimationData(const tinygltf::Model& model, double currentTime);
     static void drawSkeletonHierarchy(const Joint* currentJoint);
@@ -55,7 +56,9 @@ private:
     static glm::mat4 computeTrsMatrix(const glm::vec3& translation, const glm::quat& rotation, const glm::vec3& scale);
 private:
     GLuint mVao;
+    GLuint mEbo;
     std::map<size_t, GLuint> mVbos;
+    std::vector<GLuint> mEbos;
     GLuint mUbo;
     GLuint DATA_UNIFORM_BINDING = 0;
     tinygltf::Model mModel;

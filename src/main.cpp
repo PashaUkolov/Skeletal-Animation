@@ -18,6 +18,7 @@
 #include "animatedModel.h"
 
 #include "renderer.h"
+#include "TextRenderer.h"
 
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
@@ -32,16 +33,6 @@ double getFrameTime() {
     deltaTime = currentTime - lastFrame;
     lastFrame = currentTime;
     return deltaTime;
-}
-
-void printMatrix(const glm::mat4& matrix) {
-    printf("MATRIX ========\n");
-    for (int i = 0; i < 4; ++i) {
-        for (int j = 0; j < 4; ++j) {
-            printf("%.1f ", matrix[i][j]);
-        }
-        printf("\n");
-    }
 }
 
 int main(void) {
@@ -66,6 +57,9 @@ int main(void) {
 
     double timer = 0.0f;
     AnimatedModel animatedModel;
+    TextRenderer textRenderer;
+    textRenderer.init(window, WIDTH, HEIGHT);
+    textRenderer.loadFont("../assets/fonts/BigBlue_TerminalPlus.TTF", 18);
 
     while (!glfwWindowShouldClose(window)) {
         const double frameBegin = glfwGetTime();
@@ -79,6 +73,7 @@ int main(void) {
         renderer->getCamera().updateCamera(timer * 30.0f);
 
         animatedModel.draw(timer);
+        textRenderer.draw();
 
         const double frameEnd = glfwGetTime();
         char title[256];
